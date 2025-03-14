@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/user/chess/pkg/board"
 )
@@ -15,6 +16,7 @@ const (
 	Checkmate
 	Stalemate
 	Draw
+	TimeOut
 )
 
 // Game represents a chess game
@@ -27,6 +29,7 @@ type Game struct {
 	halfMoveClock   int // For 50-move rule
 	fullMoveNumber  int
 	State           GameState
+	TimeControl     *TimeControl
 }
 
 // Move represents a chess move
@@ -45,7 +48,7 @@ type CastlingRights struct {
 
 // NewGame creates a new chess game
 func NewGame() *Game {
-	game := &Game{
+	return &Game{
 		Board:         board.NewBoard(),
 		CurrentPlayer: board.White,
 		castlingRights: map[board.Color]CastlingRights{
@@ -55,8 +58,8 @@ func NewGame() *Game {
 		halfMoveClock:  0,
 		fullMoveNumber: 1,
 		State:          InProgress,
+		TimeControl:    NewTimeControl(10, 5), // 10 minutes + 5 seconds increment
 	}
-	return game
 }
 
 // IsValidMove checks if a move is valid
@@ -221,6 +224,15 @@ func (g *Game) isClearPath(from, to board.Position) bool {
 
 // MakeMove makes a move on the board and updates the game state
 func (g *Game) MakeMove(from, to board.Position) error {
+	if g.State != InProgress {
+		return fmt.Errorf("game is already finished")
+	}
+
+	if g.TimeControl != nil && g.TimeControl.IsTimeUp(g.CurrentPlayer == board.White) {
+		g.State = TimeOut
+		return fmt.Errorf("time is up for %s", g.GetCurrentPlayerName())
+	}
+
 	if !g.IsValidMove(from, to) {
 		return errors.New("invalid move")
 	}
@@ -285,21 +297,20 @@ func (g *Game) MakeMove(from, to board.Position) error {
 		g.halfMoveClock++
 	}
 
-	// Update full move number
-	if g.CurrentPlayer == board.Black {
-		g.fullMoveNumber++
+	// Update time control
+	if g.TimeControl != nil {
+		g.TimeControl.SwitchPlayer(g.CurrentPlayer == board.White)
 	}
 
-	// Switch player
+	// Switch player and update game state
 	if g.CurrentPlayer == board.White {
 		g.CurrentPlayer = board.Black
 	} else {
 		g.CurrentPlayer = board.White
+		g.fullMoveNumber++
 	}
 
-	// Update game state
 	g.updateGameState()
-
 	return nil
 }
 
@@ -435,9 +446,27 @@ func (g *Game) GetGameStatus() string {
 		return "Draw by stalemate"
 	case Draw:
 		return "Draw"
+	case TimeOut:
+		return "Time out"
 	default:
 		return "Unknown game state"
 	}
+}
+
+// GetTimeLeft returns the formatted time left for the current player
+func (g *Game) GetTimeLeft() string {
+	if g.TimeControl == nil {
+		return ""
+	}
+	return g.TimeControl.FormatTime(g.CurrentPlayer == board.White)
+}
+
+// GetCurrentPlayerName returns the name of the current player
+func (g *Game) GetCurrentPlayerName() string {
+	if g.CurrentPlayer == board.White {
+		return "White"
+	}
+	return "Black"
 }
 
 // Utility function
